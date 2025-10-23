@@ -15,6 +15,9 @@ const fileInput = document.getElementById('fileInput');
 const statusElement = document.getElementById('status');
 const canvasContainer = document.getElementById('canvas-container');
 let wireframeToggle;
+let colorPicker;
+let brightnessSlider;
+let brightnessValue;
 
 // Inicializace aplikace po načtení stránky
 document.addEventListener('DOMContentLoaded', function() {
@@ -101,8 +104,11 @@ function setupLighting() {
  * Nastavení event listenerů pro UI a ovládání
  */
 function setupEventListeners() {
-    // Inicializace wireframe tlačítka
+    // Inicializace UI elementů
     wireframeToggle = document.getElementById('wireframeToggle');
+    colorPicker = document.getElementById('colorPicker');
+    brightnessSlider = document.getElementById('brightnessSlider');
+    brightnessValue = document.getElementById('brightnessValue');
     
     // File input pro načítání STL souborů
     fileInput.addEventListener('change', handleFileSelect);
@@ -110,6 +116,18 @@ function setupEventListeners() {
     // Wireframe toggle tlačítko
     if (wireframeToggle) {
         wireframeToggle.addEventListener('click', toggleWireframe);
+    }
+
+    // Color picker pro změnu barvy modelu
+    if (colorPicker) {
+        colorPicker.addEventListener('change', changeModelColor);
+    }
+
+    // Brightness slider pro změnu světlosti
+    if (brightnessSlider) {
+        brightnessSlider.addEventListener('input', changeBrightness);
+        // Inicializace zobrazení hodnoty
+        updateBrightnessDisplay(brightnessSlider.value);
     }
 
     // Mouse události pro rotaci modelu
@@ -195,9 +213,10 @@ function displayModel(geometry) {
     // Výpočet normál pro správné osvětlení
     geometry.computeVertexNormals();
 
-    // Vytvoření materiálu
+    // Vytvoření materiálu s barvou z color pickeru
+    const currentColor = colorPicker ? colorPicker.value : '#00ff88';
     const material = new THREE.MeshLambertMaterial({
-        color: 0x00ff88,
+        color: currentColor.replace('#', '0x'),
         side: THREE.DoubleSide
     });
 
@@ -215,6 +234,15 @@ function displayModel(geometry) {
         wireframeToggle.classList.remove('active');
         wireframeToggle.textContent = '📐 Drátový model';
     }
+
+    // Reset brightness slideru při načtení nového modelu
+    if (brightnessSlider) {
+        brightnessSlider.value = 1.0;
+        updateBrightnessDisplay(1.0);
+    }
+    
+    // Uložení původní barvy pro brightness kalkulace
+    currentModel.material.userData.originalColor = currentModel.material.color.clone();
 
     // Vycentrování a přizpůsobení kamery
     centerAndFitModel();
@@ -361,6 +389,63 @@ function onWindowResize() {
 function updateStatus(type, message) {
     statusElement.className = type;
     statusElement.textContent = message;
+}
+
+/**
+ * Změna barvy modelu
+ */
+function changeModelColor(event) {
+    if (!currentModel) return;
+    
+    const newColor = event.target.value;
+    const hexColor = newColor.replace('#', '0x');
+    
+    // Nastavení nové barvy
+    currentModel.material.color.setHex(hexColor);
+    
+    // Uložení nové barvy jako původní pro brightness kalkulace
+    currentModel.material.userData.originalColor = currentModel.material.color.clone();
+    
+    // Znovu aplikování aktuální brightness hodnoty
+    if (brightnessSlider) {
+        const currentBrightness = parseFloat(brightnessSlider.value);
+        if (currentBrightness !== 1.0) {
+            changeBrightness({ target: { value: currentBrightness } });
+        }
+    }
+}
+
+/**
+ * Změna světlosti modelu
+ */
+function changeBrightness(event) {
+    if (!currentModel) return;
+    
+    const brightness = parseFloat(event.target.value);
+    
+    // Uložení původní barvy pokud ještě není uložena
+    if (!currentModel.material.userData.originalColor) {
+        currentModel.material.userData.originalColor = currentModel.material.color.clone();
+    }
+    
+    // Aplikace brightness na původní barvu
+    const originalColor = currentModel.material.userData.originalColor;
+    currentModel.material.color.r = Math.min(1.0, originalColor.r * brightness);
+    currentModel.material.color.g = Math.min(1.0, originalColor.g * brightness);
+    currentModel.material.color.b = Math.min(1.0, originalColor.b * brightness);
+    
+    // Aktualizace zobrazení hodnoty
+    updateBrightnessDisplay(brightness);
+}
+
+/**
+ * Aktualizace zobrazení hodnoty světlosti
+ */
+function updateBrightnessDisplay(brightness) {
+    if (brightnessValue) {
+        const percentage = Math.round(brightness * 100);
+        brightnessValue.textContent = percentage + '%';
+    }
 }
 
 /**

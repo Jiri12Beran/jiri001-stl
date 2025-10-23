@@ -53,7 +53,6 @@ Jednoduchá webová aplikace pro zobrazování STL souborů vytvořená podle za
 ### 🎨 Dodatečné funkce
 
 - Tmavý vzhled s moderním UI
-- Mírná automatická rotace modelu
 - Barevný materiál pro lepší vizualizaci
 - Stíny pro prostorový efekt
 - Pokročilé světelné nastavení

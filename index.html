@@ -127,6 +127,86 @@
             background: #0066cc;
             border-color: #0066cc;
         }
+
+        .color-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .color-input-wrapper label {
+            font-size: 12px;
+            color: #ccc;
+            white-space: nowrap;
+        }
+
+        #colorPicker {
+            width: 40px;
+            height: 30px;
+            border: 1px solid #666;
+            border-radius: 4px;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        #colorPicker::-webkit-color-swatch-wrapper {
+            padding: 2px;
+        }
+
+        #colorPicker::-webkit-color-swatch {
+            border: none;
+            border-radius: 2px;
+        }
+
+        .brightness-input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 120px;
+        }
+
+        .brightness-input-wrapper label {
+            font-size: 12px;
+            color: #ccc;
+            white-space: nowrap;
+        }
+
+        #brightnessSlider {
+            width: 60px;
+            height: 6px;
+            background: #333;
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        #brightnessSlider::-webkit-slider-thumb {
+            width: 16px;
+            height: 16px;
+            background: #0066cc;
+            border-radius: 50%;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        #brightnessSlider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #0066cc;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .brightness-value {
+            font-size: 11px;
+            color: #999;
+            min-width: 25px;
+            text-align: right;
+        }
     </style>
 </head>
 <body>
@@ -145,6 +225,28 @@
             <button id="wireframeToggle" class="btn" aria-label="Přepnout drátový model">
                 📐 Drátový model
             </button>
+            <div class="color-input-wrapper">
+                <label for="colorPicker">🎨 Barva:</label>
+                <input 
+                    type="color" 
+                    id="colorPicker" 
+                    value="#00ff88"
+                    aria-label="Vyberte barvu modelu"
+                >
+            </div>
+            <div class="brightness-input-wrapper">
+                <label for="brightnessSlider">💡 Světlost:</label>
+                <input 
+                    type="range" 
+                    id="brightnessSlider" 
+                    min="0.1" 
+                    max="2.0" 
+                    step="0.1" 
+                    value="1.0"
+                    aria-label="Nastavte světlost modelu"
+                >
+                <span id="brightnessValue" class="brightness-value">100%</span>
+            </div>
         </div>
         <div class="instructions">
             <strong>Ovládání:</strong><br>
