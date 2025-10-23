@@ -56,7 +56,7 @@ Jednoduchá webová aplikace pro zobrazování STL souborů vytvořená podle za
 - Barevný materiál pro lepší vizualizaci
 - Stíny pro prostorový efekt
 - Pokročilé světelné nastavení
-
+- Mozna zmena barvy
 ## 🌐 Kompatibilita
 
 - **Chrome/Chromium** ✅
