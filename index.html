@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STL Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+            overflow: hidden;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            margin-bottom: 15px;
+            font-size: 24px;
+            color: #ffffff;
+        }
+
+        .file-input-wrapper {
+            margin-bottom: 15px;
+        }
+
+        #fileInput {
+            background: #333;
+            color: white;
+            border: 2px dashed #666;
+            padding: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        #fileInput:hover {
+            border-color: #888;
+            background: #444;
+        }
+
+        #status {
+            font-size: 14px;
+            padding: 8px;
+            border-radius: 4px;
+            min-height: 20px;
+        }
+
+        #status.ready {
+            background-color: #2d5a2d;
+            color: #90ee90;
+        }
+
+        #status.loading {
+            background-color: #5a5a2d;
+            color: #ffff90;
+        }
+
+        #status.error {
+            background-color: #5a2d2d;
+            color: #ff9090;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .instructions {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #ccc;
+            line-height: 1.4;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: #4a4a4a;
+            color: white;
+            border: 1px solid #666;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background: #5a5a5a;
+        }
+
+        .btn:active {
+            background: #3a3a3a;
+        }
+
+        .btn.active {
+            background: #0066cc;
+            border-color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>STL Viewer</h1>
+        <div class="file-input-wrapper">
+            <input 
+                type="file" 
+                id="fileInput" 
+                accept=".stl" 
+                aria-label="Vyberte STL soubor pro zobrazení"
+            >
+        </div>
+        <div id="status" role="status" class="ready">Ready - Vyberte STL soubor</div>
+        <div class="controls">
+            <button id="wireframeToggle" class="btn" aria-label="Přepnout drátový model">
+                📐 Drátový model
+            </button>
+        </div>
+        <div class="instructions">
+            <strong>Ovládání:</strong><br>
+            • Levé tlačítko + tažení - rotace<br>
+            • Pravé tlačítko + tažení - posun<br>
+            • Kolečko myši - zoom<br>
+            • Podporované formáty: .stl
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <!-- Three.js knihovny -->
+    <script src="./three/three.min.js"></script>
+    <script src="./three/SimpleSTLLoader.js"></script>
+    <script src="./main.js"></script>
+</body>
+</html>
