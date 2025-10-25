@@ -22,6 +22,7 @@ let wireframeToggle;
 let colorPicker;
 let lightingSlider;
 let lightingValue;
+let touchIndicator;
 let currentLightingIntensity = 1.0;
 
 // Referece na světla pro dynamickou změnu intenzity
@@ -51,6 +52,7 @@ function initUIElements() {
     lightingSlider = document.getElementById('lightingSlider');
     lightingValue = document.getElementById('lightingValue');
     colorPicker = document.getElementById('colorPicker');
+    touchIndicator = document.getElementById('touchIndicator');
 }
 
 /**
@@ -570,6 +572,10 @@ function onTouchStart(event) {
     event.preventDefault();
     
     touches = Array.from(event.touches);
+    console.log('Touch start, počet dotykových bodů:', touches.length);
+    
+    // Zobrazit touch indikátor
+    showTouchIndicator(touches.length);
     
     if (touches.length === 1) {
         // Jeden prst - rotace
@@ -577,11 +583,28 @@ function onTouchStart(event) {
         isPinching = false;
         mousePosition.x = touches[0].clientX;
         mousePosition.y = touches[0].clientY;
+        
+        // Vizuální feedback
+        renderer.domElement.style.cursor = 'grabbing';
+        
     } else if (touches.length === 2) {
         // Dva prsty - zoom (pinch)
         isTouchRotating = false;
         isPinching = true;
         lastTouchDistance = getTouchDistance(touches[0], touches[1]);
+        
+        // Získat střed mezi dvěma prsty pro přesnější zoom
+        const centerX = (touches[0].clientX + touches[1].clientX) / 2;
+        const centerY = (touches[0].clientY + touches[1].clientY) / 2;
+        mousePosition.x = centerX;
+        mousePosition.y = centerY;
+        
+    } else if (touches.length === 3) {
+        // Tři prsty - panning/posun
+        isTouchRotating = false;
+        isPinching = false;
+        mousePosition.x = touches[0].clientX;
+        mousePosition.y = touches[0].clientY;
     }
 }
 
@@ -592,13 +615,15 @@ function onTouchMove(event) {
     touches = Array.from(event.touches);
     
     if (isTouchRotating && touches.length === 1) {
-        // Rotace jedním prstem
+        // Rotace jedním prstem - upravená citlivost pro mobily
         const deltaX = touches[0].clientX - mousePosition.x;
         const deltaY = touches[0].clientY - mousePosition.y;
         
-        // Stejná logika jako u myši
-        cameraPosition.phi -= deltaX * 0.01;
-        cameraPosition.theta = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPosition.theta + deltaY * 0.01));
+        // Větší citlivost pro pohodlnější ovládání na mobilech
+        const sensitivity = 0.008; // Snížená citlivost pro plynulejší pohyb
+        
+        cameraPosition.phi -= deltaX * sensitivity;
+        cameraPosition.theta = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPosition.theta + deltaY * sensitivity));
         
         updateCameraPosition();
         
@@ -606,16 +631,46 @@ function onTouchMove(event) {
         mousePosition.y = touches[0].clientY;
         
     } else if (isPinching && touches.length === 2) {
-        // Zoom pomocí pinch gestur
+        // Zoom pomocí pinch gestur - vylepšený
         const currentDistance = getTouchDistance(touches[0], touches[1]);
         const deltaDistance = currentDistance - lastTouchDistance;
         
-        // Zoom na základě změny vzdálenosti prstů
-        const zoomFactor = deltaDistance * 0.01;
-        cameraPosition.radius = Math.max(1, Math.min(20, cameraPosition.radius - zoomFactor));
+        // Adaptivní zoom rychlost podle aktuální vzdálenosti kamery
+        const zoomSpeed = Math.max(0.002, Math.min(0.02, cameraPosition.radius * 0.001));
+        const zoomFactor = deltaDistance * zoomSpeed;
+        
+        // Logaritmický zoom pro přirozenější pocit
+        const newRadius = cameraPosition.radius * (1 - zoomFactor);
+        cameraPosition.radius = Math.max(0.1, Math.min(500, newRadius));
         
         updateCameraPosition();
         lastTouchDistance = currentDistance;
+        
+    } else if (touches.length === 3) {
+        // Panning třemi prsty
+        const deltaX = touches[0].clientX - mousePosition.x;
+        const deltaY = touches[0].clientY - mousePosition.y;
+        
+        // Výpočet směrů pro panning
+        const panSpeed = 0.003 * cameraPosition.radius;
+        
+        // Pravý vektor kamery
+        const rightVector = new THREE.Vector3();
+        rightVector.crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3()));
+        rightVector.normalize();
+        
+        // Horní vektor kamery
+        const upVector = camera.up.clone();
+        
+        // Aplikace posunu
+        cameraTarget.x += rightVector.x * deltaX * panSpeed + upVector.x * deltaY * panSpeed;
+        cameraTarget.y += rightVector.y * deltaX * panSpeed + upVector.y * deltaY * panSpeed;
+        cameraTarget.z += rightVector.z * deltaX * panSpeed + upVector.z * deltaY * panSpeed;
+        
+        updateCameraPosition();
+        
+        mousePosition.x = touches[0].clientX;
+        mousePosition.y = touches[0].clientY;
     }
 }
 
@@ -624,18 +679,75 @@ function onTouchEnd(event) {
     event.preventDefault();
     
     touches = Array.from(event.touches);
+    console.log('Touch end, zbývající dotyky:', touches.length);
+    
+    // Aktualizovat touch indikátor
+    if (touches.length === 0) {
+        hideTouchIndicator();
+    } else {
+        showTouchIndicator(touches.length);
+    }
     
     if (touches.length === 0) {
         // Všechny prsty zvednuty
         isTouchRotating = false;
         isPinching = false;
+        renderer.domElement.style.cursor = 'grab';
+        
     } else if (touches.length === 1) {
         // Jeden prst zůstal - přepnutí na rotaci
         isTouchRotating = true;
         isPinching = false;
         mousePosition.x = touches[0].clientX;
         mousePosition.y = touches[0].clientY;
+        renderer.domElement.style.cursor = 'grabbing';
+        
+    } else if (touches.length === 2) {
+        // Dva prsty zůstaly - přepnutí na pinch
+        isTouchRotating = false;
+        isPinching = true;
+        lastTouchDistance = getTouchDistance(touches[0], touches[1]);
     }
+}
+
+/**
+ * Zobrazení touch indikátoru
+ */
+function showTouchIndicator(touchCount) {
+    if (!touchIndicator) return;
+    
+    let message = '';
+    switch (touchCount) {
+        case 1:
+            message = '🔄 Rotace';
+            break;
+        case 2:
+            message = '🔍 Zoom';
+            break;
+        case 3:
+            message = '👐 Posun';
+            break;
+        default:
+            message = '👆 Dotyk aktivní';
+    }
+    
+    touchIndicator.textContent = message;
+    touchIndicator.style.display = 'block';
+    touchIndicator.style.opacity = '1';
+}
+
+/**
+ * Skrytí touch indikátoru
+ */
+function hideTouchIndicator() {
+    if (!touchIndicator) return;
+    
+    touchIndicator.style.opacity = '0';
+    setTimeout(() => {
+        if (touchIndicator) {
+            touchIndicator.style.display = 'none';
+        }
+    }, 300);
 }
 
 // Pomocná funkce - vzdálenost mezi dvěma dotyky
