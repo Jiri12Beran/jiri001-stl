@@ -10,21 +10,32 @@ let cameraPosition = { phi: 0, theta: Math.PI / 2, radius: 5 };
 let cameraTarget = { x: 0, y: 0, z: 0 }; // Střed pohledu pro panning
 let isWireframe = false;
 
-// UI elementy
-const fileInput = document.getElementById('fileInput');
-const statusElement = document.getElementById('status');
-const canvasContainer = document.getElementById('canvas-container');
+// Touch handling proměnné pro mobilní zařízení
+let touches = [];
+let lastTouchDistance = 0;
+let isTouchRotating = false;
+let isPinching = false;
+
+// UI elementy - budou načteny až po načtení DOM
+let fileInput, statusElement, canvasContainer;
 let wireframeToggle;
 let colorPicker;
-let brightnessSlider;
-let brightnessValue;
+let lightingSlider;
+let lightingValue;
+let currentLightingIntensity = 1.0;
+
+// Referece na světla pro dynamickou změnu intenzity
+let ambientLight, directionalLight, fillLight, backLight;
 
 // Inicializace aplikace po načtení stránky
 document.addEventListener('DOMContentLoaded', function() {
     checkWebGLSupport();
     initScene();
     setupEventListeners();
-    updateStatus('ready', 'Ready - Vyberte STL soubor');
+    updateStatus('loading', 'Načítání výchozího modelu...');
+    
+    // Automatické načtení výchozího STL souboru
+    loadDefaultSTL();
 });
 
 /**
@@ -82,22 +93,27 @@ function initScene() {
  * Nastavení osvětlení scény
  */
 function setupLighting() {
-    // Ambient světlo pro základní osvětlení
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+    // Ambient světlo pro základní osvětlení - ukládáme referenci pro dynamické změny
+    ambientLight = new THREE.AmbientLight(0x404040, 1.2);
     scene.add(ambientLight);
 
-    // Hlavní směrové světlo
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    // Hlavní směrové světlo - ukládáme referenci pro dynamické změny
+    directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(5, 5, 5);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
     scene.add(directionalLight);
 
-    // Druhé směrové světlo pro vyplnění stínů
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    // Druhé směrové světlo pro vyplnění stínů - ukládáme referenci
+    fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
     fillLight.position.set(-5, -5, -5);
     scene.add(fillLight);
+
+    // Další světlo z opačné strany pro rovnoměrné osvětlení - ukládáme referenci
+    backLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    backLight.position.set(-3, 2, -3);
+    scene.add(backLight);
 }
 
 /**
@@ -105,10 +121,13 @@ function setupLighting() {
  */
 function setupEventListeners() {
     // Inicializace UI elementů
+    fileInput = document.getElementById('fileInput');
+    statusElement = document.getElementById('status');
+    canvasContainer = document.getElementById('canvas-container');
     wireframeToggle = document.getElementById('wireframeToggle');
+    lightingSlider = document.getElementById('lightingSlider');
+    lightingValue = document.getElementById('lightingValue');
     colorPicker = document.getElementById('colorPicker');
-    brightnessSlider = document.getElementById('brightnessSlider');
-    brightnessValue = document.getElementById('brightnessValue');
     
     // File input pro načítání STL souborů
     fileInput.addEventListener('change', handleFileSelect);
@@ -118,16 +137,16 @@ function setupEventListeners() {
         wireframeToggle.addEventListener('click', toggleWireframe);
     }
 
+    // Lighting slider pro intenzitu osvětlení
+    if (lightingSlider) {
+        lightingSlider.addEventListener('input', changeLightingIntensity);
+        // Inicializace zobrazení hodnoty
+        updateLightingDisplay(lightingSlider.value);
+    }
+
     // Color picker pro změnu barvy modelu
     if (colorPicker) {
         colorPicker.addEventListener('change', changeModelColor);
-    }
-
-    // Brightness slider pro změnu světlosti
-    if (brightnessSlider) {
-        brightnessSlider.addEventListener('input', changeBrightness);
-        // Inicializace zobrazení hodnoty
-        updateBrightnessDisplay(brightnessSlider.value);
     }
 
     // Mouse události pro rotaci modelu
@@ -144,6 +163,29 @@ function setupEventListeners() {
 
     // Zabránění kontextovému menu na canvas
     renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Touch události pro mobilní zařízení
+    renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+    renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+    renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: false });
+}
+
+/**
+ * Automatické načtení výchozího STL souboru
+ */
+
+
+function loadDefaultSTL() {
+    try {
+        // Jednoduchá kostka jako výchozí model
+        const geometry = new THREE.BoxGeometry(4, 4, 4);
+        displayModel(geometry);
+        updateStatus('ready', 'Načten výchozí model. Můžete načíst vlastní STL soubor pomocí tlačítka "Vybrat soubor".');
+        
+    } catch (error) {
+        updateStatus('error', 'Chyba při vytváření výchozího modelu: ' + error.message);
+        console.error('Default model creation failed:', error);
+    }
 }
 
 /**
@@ -215,9 +257,11 @@ function displayModel(geometry) {
 
     // Vytvoření materiálu s barvou z color pickeru
     const currentColor = colorPicker ? colorPicker.value : '#00ff88';
-    const material = new THREE.MeshLambertMaterial({
-        color: currentColor.replace('#', '0x'),
-        side: THREE.DoubleSide
+    const material = new THREE.MeshStandardMaterial({
+        color: parseInt(currentColor.replace('#', ''), 16),
+        side: THREE.DoubleSide,
+        metalness: 0.1,
+        roughness: 0.8
     });
 
     // Vytvoření mesh objektu
@@ -235,14 +279,16 @@ function displayModel(geometry) {
         wireframeToggle.textContent = '📐 Drátový model';
     }
 
-    // Reset brightness slideru při načtení nového modelu
-    if (brightnessSlider) {
-        brightnessSlider.value = 1.0;
-        updateBrightnessDisplay(1.0);
+    // Reset lighting slideru při načtení nového modelu
+    if (lightingSlider) {
+        lightingSlider.value = 1.0;
+        currentLightingIntensity = 1.0;
+        updateLightingDisplay(1.0);
+        // Obnovení základní intenzity světel
+        changeLightingIntensity({ target: { value: 1.0 } });
     }
-    
-    // Uložení původní barvy pro brightness kalkulace
-    currentModel.material.userData.originalColor = currentModel.material.color.clone();
+
+
 
     // Vycentrování a přizpůsobení kamery
     centerAndFitModel();
@@ -387,8 +433,12 @@ function onWindowResize() {
  * Aktualizace stavu v UI
  */
 function updateStatus(type, message) {
-    statusElement.className = type;
-    statusElement.textContent = message;
+    if (statusElement) {
+        statusElement.className = type;
+        statusElement.textContent = message;
+    } else {
+        console.log(`Status: ${type} - ${message}`);
+    }
 }
 
 /**
@@ -398,53 +448,48 @@ function changeModelColor(event) {
     if (!currentModel) return;
     
     const newColor = event.target.value;
-    const hexColor = newColor.replace('#', '0x');
+    
+    // Správná konverze hex barvy - použití parseInt s base 16
+    const hexColor = parseInt(newColor.replace('#', ''), 16);
     
     // Nastavení nové barvy
     currentModel.material.color.setHex(hexColor);
-    
-    // Uložení nové barvy jako původní pro brightness kalkulace
-    currentModel.material.userData.originalColor = currentModel.material.color.clone();
-    
-    // Znovu aplikování aktuální brightness hodnoty
-    if (brightnessSlider) {
-        const currentBrightness = parseFloat(brightnessSlider.value);
-        if (currentBrightness !== 1.0) {
-            changeBrightness({ target: { value: currentBrightness } });
-        }
-    }
 }
 
+
+
 /**
- * Změna světlosti modelu
+ * Změna intenzity osvětlení
  */
-function changeBrightness(event) {
-    if (!currentModel) return;
+function changeLightingIntensity(event) {
+    const intensity = parseFloat(event.target.value);
+    currentLightingIntensity = intensity;
     
-    const brightness = parseFloat(event.target.value);
-    
-    // Uložení původní barvy pokud ještě není uložena
-    if (!currentModel.material.userData.originalColor) {
-        currentModel.material.userData.originalColor = currentModel.material.color.clone();
+    // Aktualizace intenzity všech světel podle základních poměrů
+    if (ambientLight) {
+        ambientLight.intensity = 1.2 * intensity;
     }
-    
-    // Aplikace brightness na původní barvu
-    const originalColor = currentModel.material.userData.originalColor;
-    currentModel.material.color.r = Math.min(1.0, originalColor.r * brightness);
-    currentModel.material.color.g = Math.min(1.0, originalColor.g * brightness);
-    currentModel.material.color.b = Math.min(1.0, originalColor.b * brightness);
+    if (directionalLight) {
+        directionalLight.intensity = 1.5 * intensity;
+    }
+    if (fillLight) {
+        fillLight.intensity = 0.8 * intensity;
+    }
+    if (backLight) {
+        backLight.intensity = 0.5 * intensity;
+    }
     
     // Aktualizace zobrazení hodnoty
-    updateBrightnessDisplay(brightness);
+    updateLightingDisplay(intensity);
 }
 
 /**
- * Aktualizace zobrazení hodnoty světlosti
+ * Aktualizace zobrazení hodnoty intenzity osvětlení
  */
-function updateBrightnessDisplay(brightness) {
-    if (brightnessValue) {
-        const percentage = Math.round(brightness * 100);
-        brightnessValue.textContent = percentage + '%';
+function updateLightingDisplay(intensity) {
+    if (lightingValue) {
+        const percentage = Math.round(intensity * 100);
+        lightingValue.textContent = percentage + '%';
     }
 }
 
@@ -467,6 +512,90 @@ function toggleWireframe() {
             wireframeToggle.textContent = '📐 Drátový model';
         }
     }
+}
+
+/**
+ * Touch události pro mobilní zařízení
+ */
+
+// Touch start - začátek dotyku
+function onTouchStart(event) {
+    event.preventDefault();
+    
+    touches = Array.from(event.touches);
+    
+    if (touches.length === 1) {
+        // Jeden prst - rotace
+        isTouchRotating = true;
+        isPinching = false;
+        mousePosition.x = touches[0].clientX;
+        mousePosition.y = touches[0].clientY;
+    } else if (touches.length === 2) {
+        // Dva prsty - zoom (pinch)
+        isTouchRotating = false;
+        isPinching = true;
+        lastTouchDistance = getTouchDistance(touches[0], touches[1]);
+    }
+}
+
+// Touch move - pohyb během dotyku
+function onTouchMove(event) {
+    event.preventDefault();
+    
+    touches = Array.from(event.touches);
+    
+    if (isTouchRotating && touches.length === 1) {
+        // Rotace jedním prstem
+        const deltaX = touches[0].clientX - mousePosition.x;
+        const deltaY = touches[0].clientY - mousePosition.y;
+        
+        // Stejná logika jako u myši
+        cameraPosition.phi -= deltaX * 0.01;
+        cameraPosition.theta = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPosition.theta + deltaY * 0.01));
+        
+        updateCameraPosition();
+        
+        mousePosition.x = touches[0].clientX;
+        mousePosition.y = touches[0].clientY;
+        
+    } else if (isPinching && touches.length === 2) {
+        // Zoom pomocí pinch gestur
+        const currentDistance = getTouchDistance(touches[0], touches[1]);
+        const deltaDistance = currentDistance - lastTouchDistance;
+        
+        // Zoom na základě změny vzdálenosti prstů
+        const zoomFactor = deltaDistance * 0.01;
+        cameraPosition.radius = Math.max(1, Math.min(20, cameraPosition.radius - zoomFactor));
+        
+        updateCameraPosition();
+        lastTouchDistance = currentDistance;
+    }
+}
+
+// Touch end - konec dotyku
+function onTouchEnd(event) {
+    event.preventDefault();
+    
+    touches = Array.from(event.touches);
+    
+    if (touches.length === 0) {
+        // Všechny prsty zvednuty
+        isTouchRotating = false;
+        isPinching = false;
+    } else if (touches.length === 1) {
+        // Jeden prst zůstal - přepnutí na rotaci
+        isTouchRotating = true;
+        isPinching = false;
+        mousePosition.x = touches[0].clientX;
+        mousePosition.y = touches[0].clientY;
+    }
+}
+
+// Pomocná funkce - vzdálenost mezi dvěma dotyky
+function getTouchDistance(touch1, touch2) {
+    const dx = touch2.clientX - touch1.clientX;
+    const dy = touch2.clientY - touch1.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
 }
 
 /**

@@ -2,7 +2,10 @@
 <html lang="cs">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>STL Viewer</title>
     <style>
         * {
@@ -82,6 +85,7 @@
             left: 0;
             width: 100%;
             height: 100%;
+            touch-action: none; /* Zakáže výchozí touch gesta pro vlastní ovládání */
         }
 
         canvas {
@@ -207,6 +211,101 @@
             min-width: 25px;
             text-align: right;
         }
+
+        /* Mobilní responzivní design */
+        @media (max-width: 768px) {
+            #ui {
+                padding: 10px;
+                font-size: 14px;
+            }
+
+            h1 {
+                font-size: 18px;
+                margin-bottom: 10px;
+            }
+
+            .controls {
+                flex-direction: column;
+                gap: 8px;
+                margin-top: 10px;
+            }
+
+            .btn {
+                padding: 12px 16px;
+                font-size: 14px;
+                min-height: 44px; /* Doporučená velikost pro dotyková zařízení */
+            }
+
+            .brightness-input-wrapper,
+            .color-input-wrapper {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 5px;
+            }
+
+            .brightness-input-wrapper label,
+            .color-input-wrapper label {
+                font-size: 12px;
+            }
+
+            #lightingSlider {
+                width: 100%;
+                height: 35px; /* Větší pro snadnější ovládání na dotyku */
+            }
+
+            #colorPicker {
+                width: 60px;
+                height: 40px;
+                align-self: center;
+            }
+
+            #status {
+                font-size: 12px;
+                padding: 8px;
+                line-height: 1.3;
+            }
+
+            /* Skrytí některých prvků na velmi malých displejích */
+            @media (max-width: 480px) {
+                h1 {
+                    font-size: 16px;
+                }
+                
+                .btn {
+                    font-size: 13px;
+                    padding: 10px 12px;
+                }
+                
+                #lightingSlider {
+                    height: 40px;
+                }
+            }
+        }
+
+        /* Orientace na výšku - lepší využití prostoru */
+        @media (orientation: portrait) and (max-width: 768px) {
+            #ui {
+                max-height: 40vh;
+                overflow-y: auto;
+            }
+        }
+
+        /* Přizpůsobení pro dotyková zařízení */
+        @media (hover: none) and (pointer: coarse) {
+            .btn:hover {
+                background: #444; /* Zachovat hover efekt i na dotyku */
+            }
+            
+            input[type="range"]::-webkit-slider-thumb {
+                width: 24px;
+                height: 24px; /* Větší thumb pro snazší ovládání */
+            }
+            
+            input[type="range"]::-moz-range-thumb {
+                width: 24px;
+                height: 24px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -220,11 +319,24 @@
                 aria-label="Vyberte STL soubor pro zobrazení"
             >
         </div>
-        <div id="status" role="status" class="ready">Ready - Vyberte STL soubor</div>
+        <div id="status" role="status" class="loading">Načítání...</div>
         <div class="controls">
             <button id="wireframeToggle" class="btn" aria-label="Přepnout drátový model">
                 📐 Drátový model
             </button>
+            <div class="brightness-input-wrapper">
+                <label for="lightingSlider">💡 Osvětlení:</label>
+                <input 
+                    type="range" 
+                    id="lightingSlider" 
+                    min="0.0" 
+                    max="3.0" 
+                    step="0.1" 
+                    value="1.0"
+                    aria-label="Nastavte intenzitu osvětlení"
+                >
+                <span id="lightingValue" class="brightness-value">100%</span>
+            </div>
             <div class="color-input-wrapper">
                 <label for="colorPicker">🎨 Barva:</label>
                 <input 
@@ -234,34 +346,14 @@
                     aria-label="Vyberte barvu modelu"
                 >
             </div>
-            <div class="brightness-input-wrapper">
-                <label for="brightnessSlider">💡 Světlost:</label>
-                <input 
-                    type="range" 
-                    id="brightnessSlider" 
-                    min="0.1" 
-                    max="2.0" 
-                    step="0.1" 
-                    value="1.0"
-                    aria-label="Nastavte světlost modelu"
-                >
-                <span id="brightnessValue" class="brightness-value">100%</span>
-            </div>
-        </div>
-        <div class="instructions">
-            <strong>Ovládání:</strong><br>
-            • Levé tlačítko + tažení - rotace<br>
-            • Pravé tlačítko + tažení - posun<br>
-            • Kolečko myši - zoom<br>
-            • Podporované formáty: .stl
         </div>
     </div>
 
     <div id="canvas-container"></div>
 
     <!-- Three.js knihovny -->
-    <script src="./three/three.min.js"></script>
-    <script src="./three/SimpleSTLLoader.js"></script>
-    <script src="./main.js"></script>
+    <script src="three/three.min.js"></script>
+    <script src="three/SimpleSTLLoader.js"></script>
+    <script src="main.js"></script>
 </body>
 </html>

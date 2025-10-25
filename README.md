@@ -16,8 +16,9 @@ Jednoduchá webová aplikace pro zobrazování STL souborů vytvořená podle za
 ## 🚀 Použití
 
 1. **Otevřete `index.html`** přímo v prohlížeči (dvojklik na soubor)
-2. **Klikněte na "Choose File"** a vyberte STL soubor
-3. **Model se automaticky načte** a vycentruje
+2. **Výchozí model** se automaticky načte při spuštění (hubice_B_001.stl)
+3. **Volitelně vyberte jiný STL soubor** pomocí "Choose File"
+4. **Model se automaticky načte** a vycentruje
 4. **Ovládání**:
    - Táhněte myší pro rotaci
    - Používejte kolečko myši pro zoom
@@ -27,6 +28,7 @@ Jednoduchá webová aplikace pro zobrazování STL souborů vytvořená podle za
 ```
 ├── index.html              # Hlavní HTML soubor
 ├── main.js                 # Aplikační logika
+├── hubice_B_001.stl        # Výchozí STL model (automaticky se načte)
 ├── test-cube.stl           # Testovací STL soubor (kostka)
 └── three/                  # Three.js knihovny
     ├── three.min.js        # Hlavní Three.js knihovna
