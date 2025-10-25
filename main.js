@@ -15,6 +15,9 @@ let touches = [];
 let lastTouchDistance = 0;
 let isTouchRotating = false;
 let isPinching = false;
+let isPanning = false;
+let longPressTimer = null;
+let longPressDelay = 500; // 500ms pro aktivaci panning módu
 
 // UI elementy - budou načteny až po načtení DOM
 let fileInput, statusElement, canvasContainer;
@@ -574,15 +577,38 @@ function onTouchStart(event) {
     touches = Array.from(event.touches);
     console.log('Touch start, počet dotykových bodů:', touches.length);
     
-    // Zobrazit touch indikátor
-    showTouchIndicator(touches.length);
+    // Zrušit předchozí long press timer
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
     
     if (touches.length === 1) {
-        // Jeden prst - rotace
+        // Jeden prst - rotace nebo příprava na panning
         isTouchRotating = true;
         isPinching = false;
+        isPanning = false;
         mousePosition.x = touches[0].clientX;
         mousePosition.y = touches[0].clientY;
+        
+        // Spustit timer pro long press (panning)
+        longPressTimer = setTimeout(() => {
+            if (touches.length === 1 && isTouchRotating) {
+                // Přepnout na panning mód
+                isTouchRotating = false;
+                isPanning = true;
+                console.log('Long press detected - switching to panning mode');
+                showTouchIndicator('panning');
+                
+                // Vibrace pro feedback (pokud je podporována)
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+            }
+        }, longPressDelay);
+        
+        // Zobrazit touch indikátor
+        showTouchIndicator(1);
         
         // Vizuální feedback
         renderer.domElement.style.cursor = 'grabbing';
@@ -591,6 +617,7 @@ function onTouchStart(event) {
         // Dva prsty - zoom (pinch)
         isTouchRotating = false;
         isPinching = true;
+        isPanning = false;
         lastTouchDistance = getTouchDistance(touches[0], touches[1]);
         
         // Získat střed mezi dvěma prsty pro přesnější zoom
@@ -599,12 +626,15 @@ function onTouchStart(event) {
         mousePosition.x = centerX;
         mousePosition.y = centerY;
         
-    } else if (touches.length === 3) {
-        // Tři prsty - panning/posun
+        // Zobrazit touch indikátor
+        showTouchIndicator(2);
+        
+    } else {
+        // Více než 2 prsty - zrušit všechny akce
         isTouchRotating = false;
         isPinching = false;
-        mousePosition.x = touches[0].clientX;
-        mousePosition.y = touches[0].clientY;
+        isPanning = false;
+        showTouchIndicator(touches.length);
     }
 }
 
@@ -613,6 +643,18 @@ function onTouchMove(event) {
     event.preventDefault();
     
     touches = Array.from(event.touches);
+    
+    // Pokud se prst pohne během long press timeout, zrušit panning
+    if (longPressTimer && (isTouchRotating || isPanning)) {
+        const moveThreshold = 10; // pixelů
+        const deltaX = Math.abs(touches[0].clientX - mousePosition.x);
+        const deltaY = Math.abs(touches[0].clientY - mousePosition.y);
+        
+        if (deltaX > moveThreshold || deltaY > moveThreshold) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    }
     
     if (isTouchRotating && touches.length === 1) {
         // Rotace jedním prstem - upravená citlivost pro mobily
@@ -624,6 +666,32 @@ function onTouchMove(event) {
         
         cameraPosition.phi -= deltaX * sensitivity;
         cameraPosition.theta = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPosition.theta + deltaY * sensitivity));
+        
+        updateCameraPosition();
+        
+        mousePosition.x = touches[0].clientX;
+        mousePosition.y = touches[0].clientY;
+        
+    } else if (isPanning && touches.length === 1) {
+        // Panning jedním prstem po dlouhém stisku
+        const deltaX = touches[0].clientX - mousePosition.x;
+        const deltaY = touches[0].clientY - mousePosition.y;
+        
+        // Výpočet směrů pro panning
+        const panSpeed = 0.004 * cameraPosition.radius;
+        
+        // Pravý vektor kamery
+        const rightVector = new THREE.Vector3();
+        rightVector.crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3()));
+        rightVector.normalize();
+        
+        // Horní vektor kamery
+        const upVector = camera.up.clone();
+        
+        // Aplikace posunu
+        cameraTarget.x += rightVector.x * deltaX * panSpeed + upVector.x * deltaY * panSpeed;
+        cameraTarget.y += rightVector.y * deltaX * panSpeed + upVector.y * deltaY * panSpeed;
+        cameraTarget.z += rightVector.z * deltaX * panSpeed + upVector.z * deltaY * panSpeed;
         
         updateCameraPosition();
         
@@ -645,32 +713,6 @@ function onTouchMove(event) {
         
         updateCameraPosition();
         lastTouchDistance = currentDistance;
-        
-    } else if (touches.length === 3) {
-        // Panning třemi prsty
-        const deltaX = touches[0].clientX - mousePosition.x;
-        const deltaY = touches[0].clientY - mousePosition.y;
-        
-        // Výpočet směrů pro panning
-        const panSpeed = 0.003 * cameraPosition.radius;
-        
-        // Pravý vektor kamery
-        const rightVector = new THREE.Vector3();
-        rightVector.crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3()));
-        rightVector.normalize();
-        
-        // Horní vektor kamery
-        const upVector = camera.up.clone();
-        
-        // Aplikace posunu
-        cameraTarget.x += rightVector.x * deltaX * panSpeed + upVector.x * deltaY * panSpeed;
-        cameraTarget.y += rightVector.y * deltaX * panSpeed + upVector.y * deltaY * panSpeed;
-        cameraTarget.z += rightVector.z * deltaX * panSpeed + upVector.z * deltaY * panSpeed;
-        
-        updateCameraPosition();
-        
-        mousePosition.x = touches[0].clientX;
-        mousePosition.y = touches[0].clientY;
     }
 }
 
@@ -680,6 +722,12 @@ function onTouchEnd(event) {
     
     touches = Array.from(event.touches);
     console.log('Touch end, zbývající dotyky:', touches.length);
+    
+    // Zrušit long press timer
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
     
     // Aktualizovat touch indikátor
     if (touches.length === 0) {
@@ -692,20 +740,37 @@ function onTouchEnd(event) {
         // Všechny prsty zvednuty
         isTouchRotating = false;
         isPinching = false;
+        isPanning = false;
         renderer.domElement.style.cursor = 'grab';
         
     } else if (touches.length === 1) {
         // Jeden prst zůstal - přepnutí na rotaci
         isTouchRotating = true;
         isPinching = false;
+        isPanning = false;
         mousePosition.x = touches[0].clientX;
         mousePosition.y = touches[0].clientY;
         renderer.domElement.style.cursor = 'grabbing';
+        
+        // Spustit nový long press timer
+        longPressTimer = setTimeout(() => {
+            if (touches.length === 1 && isTouchRotating) {
+                isTouchRotating = false;
+                isPanning = true;
+                console.log('Long press detected - switching to panning mode');
+                showTouchIndicator('panning');
+                
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
+            }
+        }, longPressDelay);
         
     } else if (touches.length === 2) {
         // Dva prsty zůstaly - přepnutí na pinch
         isTouchRotating = false;
         isPinching = true;
+        isPanning = false;
         lastTouchDistance = getTouchDistance(touches[0], touches[1]);
     }
 }
@@ -717,18 +782,23 @@ function showTouchIndicator(touchCount) {
     if (!touchIndicator) return;
     
     let message = '';
-    switch (touchCount) {
-        case 1:
-            message = '🔄 Rotace';
-            break;
-        case 2:
-            message = '🔍 Zoom';
-            break;
-        case 3:
-            message = '👐 Posun';
-            break;
-        default:
-            message = '👆 Dotyk aktivní';
+    if (touchCount === 'panning') {
+        message = '👐 Posun - dlouhý stisk';
+        touchIndicator.style.background = 'rgba(0, 150, 255, 0.9)';
+    } else {
+        switch (touchCount) {
+            case 1:
+                message = isPanning ? '� Posun' : '🔄 Rotace';
+                touchIndicator.style.background = isPanning ? 'rgba(0, 150, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)';
+                break;
+            case 2:
+                message = '� Zoom';
+                touchIndicator.style.background = 'rgba(0, 100, 0, 0.8)';
+                break;
+            default:
+                message = '👆 Dotyk aktivní';
+                touchIndicator.style.background = 'rgba(0, 0, 0, 0.8)';
+        }
     }
     
     touchIndicator.textContent = message;
