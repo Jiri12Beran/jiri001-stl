@@ -17,16 +17,19 @@ let isTouchRotating = false;
 let isPinching = false;
 let isPanning = false;
 let longPressTimer = null;
-let longPressDelay = 500; // 500ms pro aktivaci panning módu
+let longPressDelay = 600; // 600ms pro aktivaci panning módu (delší pro Safari)
+let initialTouchPosition = { x: 0, y: 0 };
+let touchStartTime = 0;
 
 // UI elementy - budou načteny až po načtení DOM
 let fileInput, statusElement, canvasContainer;
-let wireframeToggle;
+let wireframeToggle, panModeToggle;
 let colorPicker;
 let lightingSlider;
 let lightingValue;
 let touchIndicator;
 let currentLightingIntensity = 1.0;
+let manualPanMode = false; // Ruční režim posunu pomocí tlačítka
 
 // Referece na světla pro dynamickou změnu intenzity
 let ambientLight, directionalLight, fillLight, backLight;
@@ -52,6 +55,7 @@ function initUIElements() {
     statusElement = document.getElementById('status');
     canvasContainer = document.getElementById('canvas-container');
     wireframeToggle = document.getElementById('wireframeToggle');
+    panModeToggle = document.getElementById('panModeToggle');
     lightingSlider = document.getElementById('lightingSlider');
     lightingValue = document.getElementById('lightingValue');
     colorPicker = document.getElementById('colorPicker');
@@ -163,6 +167,11 @@ function setupEventListeners() {
     // Wireframe toggle tlačítko
     if (wireframeToggle) {
         wireframeToggle.addEventListener('click', toggleWireframe);
+    }
+
+    // Pan mode toggle tlačítko
+    if (panModeToggle) {
+        panModeToggle.addEventListener('click', togglePanMode);
     }
 
     // Lighting slider pro intenzitu osvětlení
@@ -573,9 +582,11 @@ function toggleWireframe() {
 // Touch start - začátek dotyku
 function onTouchStart(event) {
     event.preventDefault();
+    event.stopPropagation();
     
     touches = Array.from(event.touches);
     console.log('Touch start, počet dotykových bodů:', touches.length);
+    touchStartTime = Date.now();
     
     // Zrušit předchozí long press timer
     if (longPressTimer) {
@@ -591,18 +602,50 @@ function onTouchStart(event) {
         mousePosition.x = touches[0].clientX;
         mousePosition.y = touches[0].clientY;
         
-        // Spustit timer pro long press (panning)
+        // Zapamatovat počáteční pozici
+        initialTouchPosition.x = touches[0].clientX;
+        initialTouchPosition.y = touches[0].clientY;
+        
+        // Spustit timer pro long press (panning) - s lepší detekcí pro Safari
         longPressTimer = setTimeout(() => {
-            if (touches.length === 1 && isTouchRotating) {
-                // Přepnout na panning mód
-                isTouchRotating = false;
-                isPanning = true;
-                console.log('Long press detected - switching to panning mode');
-                showTouchIndicator('panning');
-                
-                // Vibrace pro feedback (pokud je podporována)
-                if (navigator.vibrate) {
-                    navigator.vibrate(50);
+            if (touches.length === 1 && isTouchRotating && !isPanning) {
+                // Kontrola, že se prst nepohnul příliš (pro Safari)
+                const currentTouch = touches[0] || event.touches[0];
+                if (currentTouch) {
+                    const deltaX = Math.abs(currentTouch.clientX - initialTouchPosition.x);
+                    const deltaY = Math.abs(currentTouch.clientY - initialTouchPosition.y);
+                    
+                    if (deltaX < 15 && deltaY < 15) { // Tolerovat malý pohyb
+                        // Přepnout na panning mód
+                        isTouchRotating = false;
+                        isPanning = true;
+                        console.log('Long press detected - switching to panning mode');
+                        showTouchIndicator('panning');
+                        
+                        // Vibrace pro feedback (pokud je podporována)
+                        if (navigator.vibrate) {
+                            navigator.vibrate([50]);
+                        }
+                        
+                        // Audio feedback pro Safari (kde vibrace nemusí fungovat)
+                        try {
+                            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            const oscillator = audioContext.createOscillator();
+                            const gainNode = audioContext.createGain();
+                            
+                            oscillator.connect(gainNode);
+                            gainNode.connect(audioContext.destination);
+                            
+                            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+                            
+                            oscillator.start(audioContext.currentTime);
+                            oscillator.stop(audioContext.currentTime + 0.1);
+                        } catch (e) {
+                            console.log('Audio feedback not available');
+                        }
+                    }
                 }
             }
         }, longPressDelay);
@@ -641,33 +684,56 @@ function onTouchStart(event) {
 // Touch move - pohyb během dotyku
 function onTouchMove(event) {
     event.preventDefault();
+    event.stopPropagation();
     
     touches = Array.from(event.touches);
     
-    // Pokud se prst pohne během long press timeout, zrušit panning
-    if (longPressTimer && (isTouchRotating || isPanning)) {
-        const moveThreshold = 10; // pixelů
-        const deltaX = Math.abs(touches[0].clientX - mousePosition.x);
-        const deltaY = Math.abs(touches[0].clientY - mousePosition.y);
+    // Pokud se prst pohne příliš během long press timeout, neaktivovat panning
+    if (longPressTimer && isTouchRotating && touches.length === 1) {
+        const moveThreshold = 20; // Zvýšený práh pro Safari
+        const deltaX = Math.abs(touches[0].clientX - initialTouchPosition.x);
+        const deltaY = Math.abs(touches[0].clientY - initialTouchPosition.y);
         
         if (deltaX > moveThreshold || deltaY > moveThreshold) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
+            // Příliš velký pohyb - pokračovat v rotaci
+            // Long press timer zůstává aktivní, ale nebude úspěšný
         }
     }
     
-    if (isTouchRotating && touches.length === 1) {
-        // Rotace jedním prstem - upravená citlivost pro mobily
+    if ((isTouchRotating || manualPanMode) && touches.length === 1) {
         const deltaX = touches[0].clientX - mousePosition.x;
         const deltaY = touches[0].clientY - mousePosition.y;
         
-        // Větší citlivost pro pohodlnější ovládání na mobilech
-        const sensitivity = 0.008; // Snížená citlivost pro plynulejší pohyb
-        
-        cameraPosition.phi -= deltaX * sensitivity;
-        cameraPosition.theta = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPosition.theta + deltaY * sensitivity));
-        
-        updateCameraPosition();
+        if (manualPanMode || isPanning) {
+            // Panning režim (manuální nebo automatický)
+            console.log('Panning active (manual or auto), delta:', deltaX, deltaY);
+            
+            // Výpočet směrů pro panning - zvýšená citlivost pro Safari
+            const panSpeed = 0.005 * Math.max(1, cameraPosition.radius * 0.1);
+            
+            // Pravý vektor kamery
+            const rightVector = new THREE.Vector3();
+            rightVector.crossVectors(camera.up, camera.getWorldDirection(new THREE.Vector3()));
+            rightVector.normalize();
+            
+            // Horní vektor kamery
+            const upVector = camera.up.clone();
+            
+            // Aplikace posunu s větší citlivostí
+            cameraTarget.x += rightVector.x * deltaX * panSpeed + upVector.x * deltaY * panSpeed;
+            cameraTarget.y += rightVector.y * deltaX * panSpeed + upVector.y * deltaY * panSpeed;
+            cameraTarget.z += rightVector.z * deltaX * panSpeed + upVector.z * deltaY * panSpeed;
+            
+            updateCameraPosition();
+        } else {
+            // Rotace jedním prstem - upravená citlivost pro mobily
+            const sensitivity = 0.008; // Snížená citlivost pro plynulejší pohyb
+            
+            cameraPosition.phi -= deltaX * sensitivity;
+            cameraPosition.theta = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPosition.theta + deltaY * sensitivity));
+            
+            updateCameraPosition();
+        }
         
         mousePosition.x = touches[0].clientX;
         mousePosition.y = touches[0].clientY;
@@ -677,8 +743,10 @@ function onTouchMove(event) {
         const deltaX = touches[0].clientX - mousePosition.x;
         const deltaY = touches[0].clientY - mousePosition.y;
         
-        // Výpočet směrů pro panning
-        const panSpeed = 0.004 * cameraPosition.radius;
+        console.log('Panning active, delta:', deltaX, deltaY);
+        
+        // Výpočet směrů pro panning - zvýšená citlivost pro Safari
+        const panSpeed = 0.005 * Math.max(1, cameraPosition.radius * 0.1);
         
         // Pravý vektor kamery
         const rightVector = new THREE.Vector3();
@@ -688,7 +756,7 @@ function onTouchMove(event) {
         // Horní vektor kamery
         const upVector = camera.up.clone();
         
-        // Aplikace posunu
+        // Aplikace posunu s větší citlivostí
         cameraTarget.x += rightVector.x * deltaX * panSpeed + upVector.x * deltaY * panSpeed;
         cameraTarget.y += rightVector.y * deltaX * panSpeed + upVector.y * deltaY * panSpeed;
         cameraTarget.z += rightVector.z * deltaX * panSpeed + upVector.z * deltaY * panSpeed;
@@ -719,9 +787,10 @@ function onTouchMove(event) {
 // Touch end - konec dotyku
 function onTouchEnd(event) {
     event.preventDefault();
+    event.stopPropagation();
     
     touches = Array.from(event.touches);
-    console.log('Touch end, zbývající dotyky:', touches.length);
+    console.log('Touch end, zbývající dotyky:', touches.length, 'isPanning:', isPanning);
     
     // Zrušit long press timer
     if (longPressTimer) {
@@ -738,33 +807,49 @@ function onTouchEnd(event) {
     
     if (touches.length === 0) {
         // Všechny prsty zvednuty
+        console.log('Všechny prsty zvednuty, resetuji stavy');
         isTouchRotating = false;
         isPinching = false;
         isPanning = false;
         renderer.domElement.style.cursor = 'grab';
         
     } else if (touches.length === 1) {
-        // Jeden prst zůstal - přepnutí na rotaci
-        isTouchRotating = true;
-        isPinching = false;
-        isPanning = false;
-        mousePosition.x = touches[0].clientX;
-        mousePosition.y = touches[0].clientY;
-        renderer.domElement.style.cursor = 'grabbing';
-        
-        // Spustit nový long press timer
-        longPressTimer = setTimeout(() => {
-            if (touches.length === 1 && isTouchRotating) {
-                isTouchRotating = false;
-                isPanning = true;
-                console.log('Long press detected - switching to panning mode');
-                showTouchIndicator('panning');
-                
-                if (navigator.vibrate) {
-                    navigator.vibrate(50);
+        // Jeden prst zůstal - reset na rotaci (pokud nebyl v panning módu)
+        if (!isPanning) {
+            isTouchRotating = true;
+            isPinching = false;
+            mousePosition.x = touches[0].clientX;
+            mousePosition.y = touches[0].clientY;
+            
+            // Zapamatovat novou počáteční pozici
+            initialTouchPosition.x = touches[0].clientX;
+            initialTouchPosition.y = touches[0].clientY;
+            touchStartTime = Date.now();
+            
+            renderer.domElement.style.cursor = 'grabbing';
+            
+            // Spustit nový long press timer
+            longPressTimer = setTimeout(() => {
+                if (touches.length === 1 && isTouchRotating && !isPanning) {
+                    const currentTouch = touches[0];
+                    if (currentTouch) {
+                        const deltaX = Math.abs(currentTouch.clientX - initialTouchPosition.x);
+                        const deltaY = Math.abs(currentTouch.clientY - initialTouchPosition.y);
+                        
+                        if (deltaX < 15 && deltaY < 15) {
+                            isTouchRotating = false;
+                            isPanning = true;
+                            console.log('Long press detected (touch end) - switching to panning mode');
+                            showTouchIndicator('panning');
+                            
+                            if (navigator.vibrate) {
+                                navigator.vibrate([50]);
+                            }
+                        }
+                    }
                 }
-            }
-        }, longPressDelay);
+            }, longPressDelay);
+        }
         
     } else if (touches.length === 2) {
         // Dva prsty zůstaly - přepnutí na pinch
@@ -788,8 +873,13 @@ function showTouchIndicator(touchCount) {
     } else {
         switch (touchCount) {
             case 1:
-                message = isPanning ? '� Posun' : '🔄 Rotace';
-                touchIndicator.style.background = isPanning ? 'rgba(0, 150, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)';
+                if (manualPanMode || isPanning) {
+                    message = '👐 Posun';
+                    touchIndicator.style.background = 'rgba(0, 150, 255, 0.8)';
+                } else {
+                    message = '🔄 Rotace';
+                    touchIndicator.style.background = 'rgba(0, 0, 0, 0.8)';
+                }
                 break;
             case 2:
                 message = '� Zoom';
@@ -818,6 +908,27 @@ function hideTouchIndicator() {
             touchIndicator.style.display = 'none';
         }
     }, 300);
+}
+
+/**
+ * Přepínání režimu posunu pomocí tlačítka
+ */
+function togglePanMode() {
+    manualPanMode = !manualPanMode;
+    
+    if (panModeToggle) {
+        if (manualPanMode) {
+            panModeToggle.classList.add('active');
+            panModeToggle.textContent = '🔄 Režim rotace';
+            showTouchIndicator('panning');
+        } else {
+            panModeToggle.classList.remove('active');
+            panModeToggle.textContent = '👐 Režim posunu';
+            showTouchIndicator(1);
+        }
+    }
+    
+    console.log('Manual pan mode:', manualPanMode);
 }
 
 // Pomocná funkce - vzdálenost mezi dvěma dotyky
