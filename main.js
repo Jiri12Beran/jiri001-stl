@@ -29,6 +29,8 @@ let ambientLight, directionalLight, fillLight, backLight;
 
 // Inicializace aplikace po načtení stránky
 document.addEventListener('DOMContentLoaded', function() {
+    // Nejprve inicializovat UI elementy
+    initUIElements();
     checkWebGLSupport();
     initScene();
     setupEventListeners();
@@ -37,6 +39,19 @@ document.addEventListener('DOMContentLoaded', function() {
     // Automatické načtení výchozího STL souboru
     loadDefaultSTL();
 });
+
+/**
+ * Inicializace UI elementů
+ */
+function initUIElements() {
+    fileInput = document.getElementById('fileInput');
+    statusElement = document.getElementById('status');
+    canvasContainer = document.getElementById('canvas-container');
+    wireframeToggle = document.getElementById('wireframeToggle');
+    lightingSlider = document.getElementById('lightingSlider');
+    lightingValue = document.getElementById('lightingValue');
+    colorPicker = document.getElementById('colorPicker');
+}
 
 /**
  * Kontrola podpory WebGL v prohlížeči
@@ -59,29 +74,44 @@ function checkWebGLSupport() {
  */
 function initScene() {
     try {
+        console.log('Inicializuji 3D scénu...');
+        
+        // Kontrola, jestli máme canvas kontejner
+        if (!canvasContainer) {
+            throw new Error('Canvas kontejner nebyl nalezen');
+        }
+        
         // Vytvoření scény
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x2a2a2a);
+        console.log('Scéna vytvořena');
 
         // Nastavení kamery (perspektivní s FOV ~60°)
         const aspect = window.innerWidth / window.innerHeight;
         camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
         updateCameraPosition();
+        console.log('Kamera vytvořena');
 
         // Vytvoření rendereru s antialiasem
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        console.log('Renderer vytvořen');
         
         // Přidání canvas do kontejneru
         canvasContainer.appendChild(renderer.domElement);
+        console.log('Canvas přidán do kontejneru');
 
         // Přidání světel
         setupLighting();
+        console.log('Osvětlení nastaveno');
 
         // Spuštění render smyčky
         animate();
+        console.log('Animační smyčka spuštěna');
+        
+        updateStatus('ready', '3D scéna inicializována');
 
     } catch (error) {
         updateStatus('error', 'Chyba při inicializaci 3D scény: ' + error.message);
@@ -120,14 +150,7 @@ function setupLighting() {
  * Nastavení event listenerů pro UI a ovládání
  */
 function setupEventListeners() {
-    // Inicializace UI elementů
-    fileInput = document.getElementById('fileInput');
-    statusElement = document.getElementById('status');
-    canvasContainer = document.getElementById('canvas-container');
-    wireframeToggle = document.getElementById('wireframeToggle');
-    lightingSlider = document.getElementById('lightingSlider');
-    lightingValue = document.getElementById('lightingValue');
-    colorPicker = document.getElementById('colorPicker');
+    // UI elementy jsou už inicializované v initUIElements()
     
     // File input pro načítání STL souborů
     fileInput.addEventListener('change', handleFileSelect);
@@ -193,7 +216,12 @@ function loadDefaultSTL() {
  */
 function handleFileSelect(event) {
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+        console.log('Žádný soubor nebyl vybrán');
+        return;
+    }
+
+    console.log('Vybrán soubor:', file.name, 'velikost:', file.size, 'bytes');
 
     if (!file.name.toLowerCase().endsWith('.stl')) {
         updateStatus('error', 'Chyba: Vyberte prosím STL soubor');
@@ -208,23 +236,32 @@ function handleFileSelect(event) {
  * Načtení a parsování STL souboru
  */
 function loadSTLFile(file) {
+    console.log('Začínám načítání souboru:', file.name);
+    
     const reader = new FileReader();
     
     reader.onload = function(event) {
         try {
+            console.log('Soubor načten, velikost dat:', event.target.result.byteLength, 'bytes');
+            
             const arrayBuffer = event.target.result;
             
-            // Vytvoření jednoduchého STL loaderu
-            const loader = new THREE.STLLoader();
+            // Vytvoření STL loaderu
+            const loader = new SimpleSTLLoader();
+            
+            console.log('Začínám parsování STL...');
             
             // Parsování STL dat
             const geometry = loader.parse(arrayBuffer);
+            
+            console.log('STL naparsováno, počet vrcholů:', geometry.attributes.position.count);
             
             if (!geometry || geometry.attributes.position.count === 0) {
                 throw new Error('STL soubor neobsahuje žádná platná data');
             }
 
             // Zobrazení modelu ve scéně
+            console.log('Zobrazuji model...');
             displayModel(geometry);
             updateStatus('ready', `Načteno: ${file.name} (${geometry.attributes.position.count / 3} trojúhelníků)`);
 
@@ -236,6 +273,7 @@ function loadSTLFile(file) {
 
     reader.onerror = function() {
         updateStatus('error', 'Chyba při čtení souboru');
+        console.error('FileReader error');
     };
 
     reader.readAsArrayBuffer(file);
@@ -245,18 +283,24 @@ function loadSTLFile(file) {
  * Zobrazení 3D modelu ve scéně
  */
 function displayModel(geometry) {
+    console.log('displayModel() zavolána');
+    
     // Odstranění předchozího modelu
     if (currentModel) {
+        console.log('Odstraňuji předchozí model');
         scene.remove(currentModel);
         currentModel.geometry.dispose();
         currentModel.material.dispose();
     }
 
     // Výpočet normál pro správné osvětlení
+    console.log('Počítám normály...');
     geometry.computeVertexNormals();
 
     // Vytvoření materiálu s barvou z color pickeru
     const currentColor = colorPicker ? colorPicker.value : '#00ff88';
+    console.log('Používám barvu:', currentColor);
+    
     const material = new THREE.MeshStandardMaterial({
         color: parseInt(currentColor.replace('#', ''), 16),
         side: THREE.DoubleSide,
@@ -265,11 +309,13 @@ function displayModel(geometry) {
     });
 
     // Vytvoření mesh objektu
+    console.log('Vytvářím mesh objekt...');
     currentModel = new THREE.Mesh(geometry, material);
     currentModel.castShadow = true;
     currentModel.receiveShadow = true;
 
     // Přidání do scény
+    console.log('Přidávám model do scény');
     scene.add(currentModel);
 
     // Reset wireframe stavu při načtení nového modelu
@@ -288,10 +334,11 @@ function displayModel(geometry) {
         changeLightingIntensity({ target: { value: 1.0 } });
     }
 
-
-
     // Vycentrování a přizpůsobení kamery
+    console.log('Centruju kameru...');
     centerAndFitModel();
+    
+    console.log('Model úspěšně zobrazen');
 }
 
 /**
